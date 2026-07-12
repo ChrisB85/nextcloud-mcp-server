@@ -478,8 +478,16 @@ class CalendarClient:
         start_datetime: dt.datetime | None = None,
         end_datetime: dt.datetime | None = None,
         limit: int = 50,
+        filters: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
-        """List events in a calendar within date range."""
+        """List events in a calendar within date range.
+
+        ``filters`` (title_contains, categories, status, ...) are applied
+        *before* ``limit`` so a match is never hidden behind the truncation cap:
+        on a calendar with more events than ``limit`` the old order (truncate,
+        then let the caller filter) returned only the first ``limit`` unfiltered
+        events and silently dropped matches sorting after them.
+        """
         await self._ensure_calendar_home()
         calendar = self._get_calendar(calendar_name)
 
@@ -516,12 +524,16 @@ class CalendarClient:
                 event_dict["etag"] = ""
                 result.append(event_dict)
 
-                if len(result) >= limit:
-                    break
-
-            if len(result) >= limit:
+            # Without filters the first ``limit`` events are the answer, so we
+            # can stop early. With filters we must scan the whole calendar first
+            # (filtering happens before the cap below).
+            if not filters and len(result) >= limit:
                 break
 
+        if filters:
+            result = self._apply_event_filters(result, filters)
+
+        result = result[:limit]
         logger.debug("Found %d events", len(result))
         return result
 
@@ -722,13 +734,15 @@ class CalendarClient:
 
             for calendar in calendars:
                 try:
+                    # Filters go to get_calendar_events so they run before its
+                    # per-calendar limit, not after (which would drop matches
+                    # past the cap on large calendars).
                     events = await self.get_calendar_events(
-                        calendar["name"], start_datetime, end_datetime
+                        calendar["name"],
+                        start_datetime,
+                        end_datetime,
+                        filters=filters,
                     )
-
-                    # Apply filters if provided
-                    if filters:
-                        events = self._apply_event_filters(events, filters)
 
                     # Add calendar info to each event
                     for event in events:
