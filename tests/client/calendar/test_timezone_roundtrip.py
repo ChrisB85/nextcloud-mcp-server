@@ -240,3 +240,43 @@ def test_roundtrip_tzid_event_preserves_iana_name(mocker):
     assert parsed is not None
     assert parsed["start_tz"] == "America/New_York"
     assert parsed["start_datetime"] == "2026-05-14T10:00:00-04:00"
+
+
+# ============= Fixed-offset input must not leak as TZID="UTC+02:00" =============
+
+
+def test_create_ical_event_non_utc_offset_is_stored_as_utc(mocker):
+    """A ``+02:00`` input must be written as UTC, not as ``TZID="UTC+02:00"``.
+
+    ``fromisoformat`` yields a fixed-offset tzinfo whose ``tzname()`` is
+    ``UTC+02:00``; icalendar used it as a TZID without a VTIMEZONE, which
+    clients (e.g. Home Assistant CalDAV) cannot resolve.
+    """
+    client = _make_client(mocker)
+    event_data = {
+        "title": "Offset event",
+        "start_datetime": "2026-10-08T20:00:00+02:00",
+        "end_datetime": "2026-10-08T21:00:00+02:00",
+    }
+
+    ical = client._create_ical_event(event_data, event_uid="offset-uid")
+
+    assert "DTSTART:20261008T180000Z" in ical
+    assert "DTEND:20261008T190000Z" in ical
+    assert "TZID" not in ical
+
+
+def test_create_ical_todo_non_utc_offset_is_stored_as_utc(mocker):
+    """Todo ``due``/``dtstart`` with a ``+01:00`` offset are written as UTC."""
+    client = _make_client(mocker)
+    todo_data = {
+        "summary": "Offset todo",
+        "due": "2026-12-01T09:00:00+01:00",
+        "dtstart": "2026-12-01T08:00:00+01:00",
+    }
+
+    ical = client._create_ical_todo(todo_data, todo_uid="offset-todo")
+
+    assert "DUE:20261201T080000Z" in ical
+    assert "DTSTART:20261201T070000Z" in ical
+    assert "TZID" not in ical
