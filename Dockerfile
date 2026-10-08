@@ -17,6 +17,8 @@ RUN apt update && apt install --no-install-recommends --no-install-suggests -y \
 # state (settings.toml, data/), /src is build-only. UV_PROJECT_ENVIRONMENT is
 # what stops uv defaulting the environment to <project>/.venv.
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv
+# deploy-only: uv reflink/clone fails on this host (os error 11)
+ENV UV_LINK_MODE=copy
 WORKDIR /src
 
 COPY pyproject.toml uv.lock README.md .
